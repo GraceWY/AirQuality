@@ -1,0 +1,94 @@
+clear;clc;
+models = importdata('models_bst.mat');
+data_range = importdata('dataset_self.mat');
+data = importdata('data_norm.mat');
+
+hyp_cell = cell(1);
+% cov function
+
+Q = 2;
+
+D = 8;
+
+w = ones(Q, 1)*10/Q; m = rand(D, Q); v = rand(D, Q);
+
+covfunc = {@covSM, Q};
+
+% lik function
+
+likfunc = @likGauss;
+
+hyp_cell.lik = log(0.1);
+
+% mean function
+
+meanfunc = [];
+
+
+
+Kappa = 9;
+
+iteration = 100;
+
+
+
+hyp_model = initial_model(Q, iteration, covfunc, hyp_cell, likfunc, meanfunc);
+
+rmses_self = zeros(8, 10);
+
+% 自适应实验！！！
+for i = 1:8
+    for j = 1:10
+        disp(['i = ' num2str(i) '    j = ' num2str(j)]);
+        train_range = data_range{i}.train_range{j};
+        test_range = data_range{i}.test_range{j};
+        train_set = data(train_range, :);
+        test_set =  data(test_range, :);
+        if(mod(j, 2) == 1)
+            samples = size(train_set, 1);
+            if samples <= 2^(Kappa-1)
+                hyp_model.layer_std = 1;
+            else
+                hyp_model.layer_std = ceil(log2(samples))-Kappa+1;
+            end
+            rmse_bst = inf;
+             for t = 1:3 % 随机10次取最好
+                % train model
+                w = ones(Q, 1)/Q; m = rand(D, Q);v = rand(D, Q);
+                hyp_model.hyp_cell.cov = log([w;m(:);v(:)]);
+                [model, train_time] = train_model(hyp_model, train_set);
+                model.train_set = train_set;
+                model.train_range = train_range;
+                model.test_set = test_set;
+                model.test_range = test_range;
+                model.train_time = train_time;
+                test_x = test_set(:, 2:end);
+                test_y = test_set(:, 1);
+                [test_result, test_time] = test_model(model, hyp_model, train_set, test_x);
+                model.test_result = test_result;
+                model.test_time = test_time;
+                rmse = sqrt(sum((test_result-test_y).^2/size(test_x, 1)));
+                if rmse < rmse_bst
+                    rmse_bst = rmse;
+                    model.cov_ori = log([w;m(:);v(:)]);
+                    model_bst = model;
+                end
+             end
+             models_self{i, j} = model_bst;
+             rmses_self(i, j) = rmse_bst;
+             save models_self models_self;
+             save rmses_self rmses_self;
+             disp(['rmses_self = ' num2str(rmses_self(i, j))]);
+        else
+            test_x = test_set(:, 2:end);
+            test_y = test_set(:, 1);
+            [test_result, test_time] = test_model(models_self{i, j-1}, hyp_model, train_set, test_x);
+            model.test_result = test_result;
+            model.test_time = test_time;
+            rmses_self(i, j) = sqrt(sum((test_result-test_y).^2/size(test_x, 1)));
+            disp(['rmses_self = ' num2str(rmses_self(i, j))]);
+        end
+    end
+end
+save models_self models_self;
+save rmses_self rmses_self;
